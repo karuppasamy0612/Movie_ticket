@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   CalendarDays,
@@ -8,6 +8,7 @@ import {
   CreditCard,
   Film,
   Heart,
+  LogOut,
   MapPin,
   Menu,
   Play,
@@ -18,7 +19,9 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import AuthModal from '@/components/AuthModal';
 
 type Movie = {
   id: string;
@@ -115,6 +118,27 @@ function App() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [isSaving, setSaving] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setAuthLoading(false);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const signOut = async () => {
+    setAccountOpen(false);
+    await supabase.auth.signOut();
+  };
 
   const filteredMovies = useMemo(
     () => movies.filter((movie) => movie.title.toLowerCase().includes(searchQuery.toLowerCase()) || movie.genre.toLowerCase().includes(searchQuery.toLowerCase())),
@@ -135,6 +159,11 @@ function App() {
 
   const confirmBooking = async () => {
     if (selectedSeats.length === 0) return;
+    if (!session) {
+      setBookingOpen(false);
+      setAuthOpen(true);
+      return;
+    }
     setSaving(true);
     const reference = `LUM-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
     const nextBooking: Booking = {
@@ -173,7 +202,7 @@ function App() {
           <a href="#showtimes" onClick={() => setMenuOpen(false)}>Cinemas</a>
           <a href="#experience" onClick={() => setMenuOpen(false)}>The Lumen experience</a>
         </nav>
-        <div className="header-actions"><button className="location-button"><MapPin size={15} /> London <ChevronDown size={14} /></button><button className="icon-button" aria-label="Account"><UserRound size={19} /></button><button className="mobile-menu" aria-label="Open menu" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button></div>
+        <div className="header-actions"><button className="location-button"><MapPin size={15} /> London <ChevronDown size={14} /></button>{session ? (<div style={{ position: 'relative' }}><button className={`icon-button ${session ? 'account-signed-in' : ''}`} aria-label="Account" onClick={() => setAccountOpen(!accountOpen)}><UserRound size={19} /></button>{accountOpen && (<div className="account-menu"><div className="account-email">{session.user.email}</div><button onClick={signOut}><LogOut size={15} /> Sign out</button></div>)}</div>) : (<button className="icon-button" aria-label="Sign in" onClick={() => setAuthOpen(true)}><UserRound size={19} /></button>)}<button className="mobile-menu" aria-label="Open menu" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button></div>
       </header>
 
       <section id="top" className="hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(8, 10, 10, .92) 0%, rgba(8, 10, 10, .66) 43%, rgba(8, 10, 10, .12) 100%), url(${activeMovie.backdrop})` }}>
@@ -204,6 +233,8 @@ function App() {
       <footer className="site-footer"><div className="footer-brand"><a className="brand" href="#top"><span className="brand-mark"><Film size={17} strokeWidth={2.5} /></span><span>LUMEN</span></a><p>Stories worth leaving home for.</p></div><div className="footer-links"><a href="#movies">Movies</a><a href="#showtimes">Cinemas</a><a href="#experience">About Lumen</a><a href="#top">Help & contact</a></div><span className="copyright">© 2026 Lumen Cinemas</span></footer>
 
       {isBookingOpen && <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="booking-modal"><button className="modal-close" onClick={() => setBookingOpen(false)} aria-label="Close"><X size={20} /></button><div className="modal-heading"><p className="section-kicker">{activeMovie.title}</p><h2>Pick your seats</h2><p>{dates[selectedDate].day}, {dates[selectedDate].date} {dates[selectedDate].month} · {selectedTime}</p></div><div className="screen-label"><span /> Screen <span /></div><div className="seat-map">{rows.map((row) => <div className="seat-row" key={row}><span className="row-label">{row}</span>{seats.filter((seat) => seat.startsWith(row)).map((seat) => <button aria-label={`Seat ${seat}`} key={seat} disabled={unavailableSeats.has(seat)} className={`seat ${unavailableSeats.has(seat) ? 'seat-unavailable' : ''} ${selectedSeats.includes(seat) ? 'seat-selected' : ''}`} onClick={() => toggleSeat(seat)}>{seat.slice(1)}</button>)}</div>)}</div><div className="seat-legend"><span><i className="legend-swatch" /> Available</span><span><i className="legend-swatch legend-selected" /> Selected</span><span><i className="legend-swatch legend-unavailable" /> Taken</span></div><div className="modal-summary"><div><span>{selectedSeats.length} {selectedSeats.length === 1 ? 'ticket' : 'tickets'}</span><strong>£{ticketTotal.toFixed(2)}</strong></div><button className="button button-dark" disabled={!selectedSeats.length || isSaving} onClick={confirmBooking}>{isSaving ? 'Confirming…' : 'Confirm seats'} <ArrowRight size={16} /></button></div></div></div>}
+
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} onAuthed={() => setAuthOpen(false)} />
 
       {booking && <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="confirmation-modal"><div className="success-icon"><Check size={26} /></div><p className="section-kicker">You’re all set</p><h2>Your night starts here.</h2><p className="confirmation-copy">Your tickets for <strong>{booking.movie.title}</strong> are confirmed. We’ve saved everything you need for the door.</p><div className="ticket-card"><div className="ticket-card-top"><div><span>Booking reference</span><strong>{booking.reference}</strong></div><Ticket size={23} /></div><div className="ticket-details"><span><CalendarDays size={15} /> {booking.date}</span><span><Clock3 size={15} /> {booking.time}</span><span><MapPin size={15} /> {booking.cinema}</span><span><CreditCard size={15} /> Seats {booking.seats.join(', ')}</span></div><div className="ticket-total"><span>Total paid</span><strong>£{booking.total.toFixed(2)}</strong></div></div><button className="button button-dark full-button" onClick={() => setBooking(null)}>Back to movies <ArrowRight size={16} /></button></div></div>}
     </main>
